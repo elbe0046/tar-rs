@@ -120,8 +120,9 @@ impl<W: Write> Builder<W> {
     /// header will be modified.
     ///
     /// Then it will append the header, followed by contents of the stream
-    /// specified by `data`. To produce a valid archive the `size` field of
-    /// `header` must be the same as the length of the stream that's being
+    /// specified by `data`, with the `size` field of `header` enforced as an
+    /// upper limit. To produce a valid archive the `size` field of `header`
+    /// must be less than or equal to the length of the stream that's being
     /// written.
     ///
     /// Note that this will not attempt to seek the archive to a valid position,
@@ -406,9 +407,13 @@ impl<W: Write> Builder<W> {
     }
 }
 
-fn append(mut dst: &mut dyn Write, header: &Header, mut data: &mut dyn Read) -> io::Result<()> {
+fn append(mut dst: &mut dyn Write, header: &Header, data: &mut dyn Read) -> io::Result<()> {
     dst.write_all(header.as_bytes())?;
-    let len = io::copy(&mut data, &mut dst)?;
+    // Guards against there being more data than the header indicates in the case where contents
+    // have been appended to the file since the header was created.
+    let size = header.size()?;
+    let mut limited = data.take(size);
+    let len = io::copy(&mut limited, &mut dst)?;
 
     // Pad with zeros if necessary.
     let buf = [0; 512];
